@@ -100,8 +100,12 @@ export default function GamesPage() {
                 .order("name");
             setCollections(colData || []);
 
-            // Load favourites from localStorage
-            const favs: string[] = JSON.parse(localStorage.getItem("mg_favourites") || "[]");
+            // Fetch user favourites from database
+            const { data: favData } = await supabase
+                .from("user_favourites")
+                .select("game_id")
+                .eq("user_id", user.id);
+            const favs = (favData || []).map((f: any) => f.game_id);
             setFavourites(favs);
 
             setLoading(false);

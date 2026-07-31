@@ -18,7 +18,8 @@ import {
     Search,
     Users2,
     Clock,
-    Timer
+    Timer,
+    Maximize2
 } from "lucide-react";
 import AdminSidebar from "@/components/AdminSidebar";
 import toast, { Toaster } from "react-hot-toast";
@@ -93,6 +94,7 @@ export default function AdminTournamentsPage() {
     const [selectedTournament, setSelectedTournament] = useState<Tournament | null>(null);
     const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
     const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
+    const [isFullscreen, setIsFullscreen] = useState(false);
 
     const [adminTab, setAdminTab] = useState<"leaderboard">("leaderboard");
 
@@ -144,8 +146,8 @@ export default function AdminTournamentsPage() {
         }
     };
 
-    const fetchLeaderboard = async (tournamentId: string) => {
-        setLoadingLeaderboard(true);
+    const fetchLeaderboard = async (tournamentId: string, silent = false) => {
+        if (!silent) setLoadingLeaderboard(true);
         try {
             const { data, error } = await supabase
                 .from("tournament_leaderboard")
@@ -165,11 +167,45 @@ export default function AdminTournamentsPage() {
             setLeaderboard(formatted);
         } catch (err) {
             console.error("Error fetching leaderboard:", err);
-            toast.error("Failed to load leaderboard standings");
+            if (!silent) toast.error("Failed to load leaderboard standings");
         } finally {
-            setLoadingLeaderboard(false);
+            if (!silent) setLoadingLeaderboard(false);
         }
     };
+
+    useEffect(() => {
+        if (!selectedTournament) return;
+
+        // Perform a quick fetch initially (silently since select handles initial fetch)
+        fetchLeaderboard(selectedTournament.id, true);
+
+        // Subscribe to real-time updates for leaderboard entries
+        const channel = supabase
+            .channel(`live_leaderboard_${selectedTournament.id}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'tournament_leaderboard',
+                    filter: `tournament_id=eq.${selectedTournament.id}`
+                },
+                (payload) => {
+                    fetchLeaderboard(selectedTournament.id, true);
+                }
+            )
+            .subscribe();
+
+        // Fallback polling to guarantee updates
+        const interval = setInterval(() => {
+            fetchLeaderboard(selectedTournament.id, true);
+        }, 4000);
+
+        return () => {
+            supabase.removeChannel(channel);
+            clearInterval(interval);
+        };
+    }, [selectedTournament?.id]);
 
     const handleSelectTournament = (t: Tournament) => {
         setSelectedTournament(t);
@@ -452,12 +488,20 @@ export default function AdminTournamentsPage() {
                                                 }
                                                 if (actualStatus === 'active') {
                                                     return (
-                                                        <button
-                                                            onClick={handleEndTournament}
-                                                            className="px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold uppercase tracking-wider rounded-lg transition-colors cursor-pointer"
-                                                        >
-                                                            End Tournament
-                                                        </button>
+                                                        <>
+                                                            <button
+                                                                onClick={handleEndTournament}
+                                                                className="px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold uppercase tracking-wider rounded-lg transition-colors cursor-pointer"
+                                                            >
+                                                                End Tournament
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setIsFullscreen(true)}
+                                                                className="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center gap-1 shadow-lg shadow-purple-500/10"
+                                                            >
+                                                                <Maximize2 className="w-3.5 h-3.5" /> View Live Leaderboard
+                                                            </button>
+                                                        </>
                                                     );
                                                 }
                                                 return null;
@@ -552,7 +596,187 @@ export default function AdminTournamentsPage() {
                 )}
             </main>
 
+            {/* Live Fullscreen Leaderboard Overlay */}
+            {isFullscreen && selectedTournament && (
+                <div className="fixed inset-0 bg-[#0f051d] z-50 overflow-y-auto flex flex-col p-8 md:p-12 font-sans text-white animate-in fade-in duration-300">
+                    {/* Background glows */}
+                    <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
+                    <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] bg-pink-500/10 rounded-full blur-3xl pointer-events-none" />
 
+                    {/* Top row */}
+                    <div className="relative flex items-center justify-between border-b border-white/10 pb-6 mb-8 shrink-0">
+                        <div className="flex items-center gap-4">
+                            <Trophy className="w-9 h-9 text-yellow-400 animate-pulse" />
+                            <div>
+                                <h1 className="text-3xl font-black bg-gradient-to-r from-pink-400 via-purple-400 to-indigo-400 bg-clip-text text-transparent tracking-tight">
+                                    LIVE TOURNAMENT STANDINGS
+                                </h1>
+                                <p className="text-sm text-gray-400 flex items-center gap-2 mt-0.5">
+                                    <span className="font-bold text-gray-200">{selectedTournament.title}</span>
+                                    <span className="text-gray-600">•</span>
+                                    <span className="text-purple-400 font-bold uppercase tracking-wider text-xs">{selectedTournament.game?.title}</span>
+                                    <span className="text-gray-600">•</span>
+                                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 text-[10px] font-black border border-red-500/20">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
+                                        LIVE
+                                    </span>
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-4">
+                            {(() => {
+                                const actualStatus = getTournamentActualStatus(selectedTournament);
+                                if (actualStatus === 'active') {
+                                    return (
+                                        <div className="bg-white/5 border border-white/10 px-4 py-2 rounded-xl text-sm font-bold text-amber-400 flex items-center gap-2">
+                                            <Timer className="w-4 h-4" />
+                                            {getTimeRemaining(selectedTournament.end_at)}
+                                        </div>
+                                    );
+                                }
+                                return (
+                                    <div className="bg-white/5 border border-white/10 px-4 py-2 rounded-xl text-sm font-bold text-gray-400 uppercase tracking-widest text-[10px]">
+                                        {actualStatus}
+                                    </div>
+                                );
+                            })()}
+                            
+                            <button
+                                onClick={() => setIsFullscreen(false)}
+                                className="p-3 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 rounded-xl transition-all cursor-pointer text-gray-400 hover:text-white"
+                                title="Exit Fullscreen"
+                            >
+                                <X className="w-6 h-6" />
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Content area: Podium + Table */}
+                    <div className="relative flex-1 grid grid-cols-1 lg:grid-cols-3 gap-8 items-start max-w-7xl mx-auto w-full">
+                        {/* Podium (Top 3 users) */}
+                        <div className="lg:col-span-1 bg-white/[0.01] border border-white/5 rounded-3xl p-6 flex flex-col gap-6 items-center shadow-xl">
+                            <h3 className="text-xs font-black text-purple-400 uppercase tracking-widest text-center border-b border-white/5 pb-3 w-full">Podium Standings</h3>
+                            
+                            {leaderboard.length === 0 ? (
+                                <div className="text-center py-20 text-gray-500 text-sm">
+                                    No submissions yet.
+                                </div>
+                            ) : (
+                                <div className="flex flex-col gap-5 w-full">
+                                    {/* 1st Place */}
+                                    {leaderboard[0] && (
+                                        <div className="relative bg-gradient-to-br from-yellow-500/10 to-yellow-600/[0.02] border border-yellow-500/30 rounded-2xl p-5 flex items-center gap-4 shadow-xl overflow-hidden">
+                                            <div className="absolute top-0 right-0 w-24 h-24 bg-yellow-500/5 rounded-full blur-xl pointer-events-none" />
+                                            <div className="w-12 h-12 rounded-2xl bg-yellow-500 text-black flex items-center justify-center font-black text-xl shadow-lg shadow-yellow-500/20 shrink-0">
+                                                1
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <h4 className="font-bold text-lg text-yellow-400 truncate">{leaderboard[0].profile?.full_name || leaderboard[0].profile?.username || "Gamer"}</h4>
+                                                <p className="text-xs text-gray-500 truncate">@{leaderboard[0].profile?.username || "Gamer"}</p>
+                                                <p className="text-2xl font-black text-white mt-1.5">{leaderboard[0].high_score.toLocaleString()} <span className="text-xs font-bold text-gray-400">pts</span></p>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* 2nd Place */}
+                                    {leaderboard[1] && (
+                                        <div className="relative bg-gradient-to-br from-slate-300/10 to-slate-400/[0.02] border border-slate-300/30 rounded-2xl p-5 flex items-center gap-4 shadow-xl shrink-0">
+                                            <div className="w-12 h-12 rounded-2xl bg-slate-300 text-black flex items-center justify-center font-black text-xl shadow-lg shadow-slate-300/20 shrink-0">
+                                                2
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <h4 className="font-bold text-lg text-slate-300 truncate">{leaderboard[1].profile?.full_name || leaderboard[1].profile?.username || "Gamer"}</h4>
+                                                <p className="text-xs text-gray-500 truncate">@{leaderboard[1].profile?.username || "Gamer"}</p>
+                                                <p className="text-2xl font-black text-white mt-1.5">{leaderboard[1].high_score.toLocaleString()} <span className="text-xs font-bold text-gray-400">pts</span></p>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* 3rd Place */}
+                                    {leaderboard[2] && (
+                                        <div className="relative bg-gradient-to-br from-amber-700/15 to-amber-800/[0.02] border border-amber-700/30 rounded-2xl p-5 flex items-center gap-4 shadow-xl shrink-0">
+                                            <div className="w-12 h-12 rounded-2xl bg-amber-700 text-white flex items-center justify-center font-black text-xl shadow-lg shadow-amber-700/20 shrink-0">
+                                                3
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <h4 className="font-bold text-lg text-amber-500 truncate">{leaderboard[2].profile?.full_name || leaderboard[2].profile?.username || "Gamer"}</h4>
+                                                <p className="text-xs text-gray-500 truncate">@{leaderboard[2].profile?.username || "Gamer"}</p>
+                                                <p className="text-2xl font-black text-white mt-1.5">{leaderboard[2].high_score.toLocaleString()} <span className="text-xs font-bold text-gray-400">pts</span></p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Leaderboard Table (List of all entries) */}
+                        <div className="lg:col-span-2 flex flex-col gap-4">
+                            <h3 className="text-sm font-black text-purple-400 uppercase tracking-widest px-2 border-b border-white/5 pb-3">Leaderboard Standings</h3>
+                            
+                            {leaderboard.length === 0 ? (
+                                <div className="text-center py-20 bg-white/[0.01] border border-white/5 rounded-3xl text-gray-500">
+                                    <Activity className="w-12 h-12 text-gray-700 mx-auto mb-4 animate-pulse" />
+                                    No submissions yet. Player scores will appear here in real time.
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
+                                    {leaderboard.map((entry, index) => {
+                                        const name = entry.profile?.full_name || entry.profile?.username || "Gamer";
+                                        const username = entry.profile?.username ? `@${entry.profile.username}` : "Gamer";
+                                        
+                                        const rankBg = index === 0 
+                                            ? "bg-yellow-500/15 border-yellow-500/30 text-yellow-400" 
+                                            : index === 1 
+                                                ? "bg-slate-300/15 border-slate-300/30 text-slate-300"
+                                                : index === 2 
+                                                    ? "bg-amber-700/15 border-amber-700/30 text-amber-500" 
+                                                    : "bg-white/5 border-white/5 text-gray-400";
+
+                                        return (
+                                            <div
+                                                key={entry.user_id}
+                                                className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${
+                                                    index === 0 ? "bg-white/5 border-white/10" : "bg-white/[0.01] border-white/5"
+                                                }`}
+                                            >
+                                                <div className="flex items-center gap-4">
+                                                    <div className={`w-10 h-10 rounded-xl border flex items-center justify-center font-bold text-base ${rankBg}`}>
+                                                        {index + 1}
+                                                    </div>
+
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-sm font-black overflow-hidden relative border border-white/10 shrink-0">
+                                                            {entry.profile?.avatar_url ? (
+                                                                <img src={entry.profile.avatar_url} alt={name} className="object-cover w-full h-full" />
+                                                            ) : (
+                                                                name[0]?.toUpperCase()
+                                                            )}
+                                                        </div>
+                                                        <div>
+                                                            <h4 className="font-bold text-base text-gray-100">{name}</h4>
+                                                            <p className="text-xs text-gray-500">{username}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="text-right">
+                                                    <div className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-400 to-purple-400">
+                                                        {entry.high_score.toLocaleString()} pts
+                                                    </div>
+                                                    <div className="text-[10px] text-gray-500 mt-0.5">
+                                                        updated {new Date(entry.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -113,6 +113,7 @@ export default function TournamentDetailPage() {
     const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
     const [userEntry, setUserEntry] = useState<LeaderboardEntry | null>(null);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const [playLoading, setPlayLoading] = useState(false);
 
     useEffect(() => {
         const init = async () => {
@@ -177,13 +178,14 @@ export default function TournamentDetailPage() {
     };
 
     const handlePlayTournament = async () => {
-        if (!tournament || !tournament.game || !tournament.game.game_url || !user) return;
+        if (!tournament || !tournament.game || !tournament.game.game_url || !user || playLoading) return;
         const actualStatus = getTournamentActualStatus(tournament.start_at, tournament.end_at);
         if (actualStatus !== "active") {
             toast.error("This tournament is not currently active.");
             return;
         }
         const game = tournament.game;
+        setPlayLoading(true);
 
         try {
             const response = await fetch("/api/game/session", {
@@ -205,6 +207,7 @@ export default function TournamentDetailPage() {
         } catch (err: any) {
             console.error("Error launching tournament session:", err);
             toast.error(err.message || "Failed to start tournament session");
+            setPlayLoading(false);
         }
     };
 
@@ -328,10 +331,17 @@ export default function TournamentDetailPage() {
                                         {actualStatus === "active" && tournament.game?.game_url && (
                                             <button
                                                 onClick={handlePlayTournament}
-                                                className="px-7 py-3.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-sm uppercase tracking-wider rounded-2xl shadow-xl shadow-purple-600/25 hover:shadow-purple-500/35 flex items-center gap-2.5 active:scale-95 transition-all cursor-pointer group"
+                                                disabled={playLoading}
+                                                className="px-7 py-3.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-sm uppercase tracking-wider rounded-2xl shadow-xl shadow-purple-600/25 hover:shadow-purple-500/35 flex items-center gap-2.5 active:scale-95 transition-all cursor-pointer group disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none"
                                             >
-                                                <Play className="w-4 h-4 fill-current group-hover:scale-110 transition-transform" />
-                                                Play Tournament
+                                                {playLoading ? (
+                                                    <><Loader2 className="w-4 h-4 animate-spin" /> Starting...</>
+                                                ) : (
+                                                    <>
+                                                        <Play className="w-4 h-4 fill-current group-hover:scale-110 transition-transform" />
+                                                        Play Tournament
+                                                    </>
+                                                )}
                                             </button>
                                         )}
                                     </div>

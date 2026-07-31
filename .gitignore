@@ -50,3 +50,14 @@ extract_text.js
 extracted_spec.txt
 extracted_spec_utf8.txt
 MAGICGAMES_API_DOCS.md
+
+# project documentation and specification files
+/docs/
+/public/extracted_spec/
+/public/API_DOCUMENTATION.md
+/public/game-tracking-and-doc-generation-spec.md
+/public/graviton_gameroom_spec.docx
+/public/graviton_gameroom_spec.zip
+/public/swagger.yaml
+developer-integration-template.md
+gameplay-backend-spec.md

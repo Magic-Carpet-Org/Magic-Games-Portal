@@ -55,6 +55,7 @@ export default function GameDetailPage() {
     const [favouriteLoading, setFavouriteLoading] = useState(false);
     const [shared, setShared] = useState(false);
     const [personalBest, setPersonalBest] = useState<number | null>(null);
+    const [playLoading, setPlayLoading] = useState(false);
 
     // Rating state
     const [userRating, setUserRating] = useState<number>(0);
@@ -112,9 +113,14 @@ export default function GameDetailPage() {
                 .filter(Boolean) || [];
             setCollections(cols);
 
-            // Check if favourited (using localStorage for now)
-            const favs = JSON.parse(localStorage.getItem("mg_favourites") || "[]");
-            setIsFavourited(favs.includes(gameId));
+            // Check if favourited in database
+            const { data: favData } = await supabase
+                .from("user_favourites")
+                .select("game_id")
+                .eq("user_id", user.id)
+                .eq("game_id", gameId)
+                .maybeSingle();
+            setIsFavourited(!!favData);
 
             // Fetch ratings
             const { data: ratingsData } = await supabase
@@ -155,17 +161,30 @@ export default function GameDetailPage() {
     };
 
     const toggleFavourite = async () => {
+        if (!userId) return;
         setFavouriteLoading(true);
-        const favs: string[] = JSON.parse(localStorage.getItem("mg_favourites") || "[]");
-        let newFavs: string[];
-        if (isFavourited) {
-            newFavs = favs.filter(id => id !== gameId);
-        } else {
-            newFavs = [...favs, gameId];
+        try {
+            if (isFavourited) {
+                const { error } = await supabase
+                    .from("user_favourites")
+                    .delete()
+                    .eq("user_id", userId)
+                    .eq("game_id", gameId);
+                if (error) throw error;
+                setIsFavourited(false);
+            } else {
+                const { error } = await supabase
+                    .from("user_favourites")
+                    .insert({ user_id: userId, game_id: gameId });
+                if (error) throw error;
+                setIsFavourited(true);
+            }
+        } catch (err: any) {
+            console.error("Error toggling favourite:", err);
+            alert(err.message || "Failed to update favourites");
+        } finally {
+            setFavouriteLoading(false);
         }
-        localStorage.setItem("mg_favourites", JSON.stringify(newFavs));
-        setIsFavourited(!isFavourited);
-        setFavouriteLoading(false);
     };
 
     const handleShare = () => {
@@ -175,7 +194,8 @@ export default function GameDetailPage() {
     };
 
     const handlePlay = async () => {
-        if (!game?.game_url) return;
+        if (!game?.game_url || playLoading) return;
+        setPlayLoading(true);
         try {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) {
@@ -205,6 +225,7 @@ export default function GameDetailPage() {
         } catch (err: any) {
             console.error("Error launching practice session:", err);
             alert(err.message || "Failed to start practice session");
+            setPlayLoading(false);
         }
     };
 
@@ -366,9 +387,14 @@ export default function GameDetailPage() {
                                         {game.game_url && (
                                             <button
                                                 onClick={handlePlay}
-                                                className="w-full flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-black bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-sm transition-all hover:scale-102 cursor-pointer animate-in fade-in"
+                                                disabled={playLoading}
+                                                className="w-full flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-black bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 disabled:pointer-events-none hover:scale-102 cursor-pointer animate-in fade-in"
                                             >
-                                                <Play className="w-4 h-4" fill="white" /> Play (Practice Mode)
+                                                {playLoading ? (
+                                                    <><Loader2 className="w-4 h-4 animate-spin" /> Starting Game...</>
+                                                ) : (
+                                                    <><Play className="w-4 h-4" fill="white" /> Play (Practice Mode)</>
+                                                )}
                                             </button>
                                         )}
                                     </div>
@@ -474,9 +500,14 @@ export default function GameDetailPage() {
                                                 {game.game_url && (
                                                     <button
                                                         onClick={handlePlay}
-                                                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-black bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-sm transition-all cursor-pointer"
+                                                        disabled={playLoading}
+                                                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-black bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-sm transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none"
                                                     >
-                                                        <ExternalLink className="w-4 h-4" /> Start Practice
+                                                        {playLoading ? (
+                                                            <><Loader2 className="w-4 h-4 animate-spin" /> Starting...</>
+                                                        ) : (
+                                                            <><ExternalLink className="w-4 h-4" /> Start Practice</>
+                                                        )}
                                                     </button>
                                                 )}
                                             </div>

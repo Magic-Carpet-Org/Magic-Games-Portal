@@ -9,7 +9,7 @@ import {
     Gamepad2, Users, HelpCircle, BarChart3, Globe,
     Trophy, Play, Folder, TrendingUp, UserCheck, UserMinus,
     MapPin, Calendar, Hash, ExternalLink, DoorOpen, Star, Menu,
-    ChevronDown, ChevronUp
+    ChevronDown, ChevronUp, Loader2
 } from "lucide-react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import DashboardSkeleton from "@/components/dashboard/DashboardSkeleton";
@@ -82,6 +82,7 @@ export default function UserDashboard() {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [isFriendsCollapsed, setIsFriendsCollapsed] = useState(true);
     const router = useRouter();
+    const [loadingGameId, setLoadingGameId] = useState<string | null>(null);
 
     // Real-time presence
     const { isOnline, onlineCount } = usePresence(user?.id);
@@ -160,6 +161,14 @@ export default function UserDashboard() {
                 }).filter(f => f.profiles);
                 setRealFriends(formatted);
 
+                // Fetch user favorites from database
+                const { data: favData } = await supabase
+                    .from("user_favourites")
+                    .select("game_id")
+                    .eq("user_id", user.id);
+                const favIds = (favData || []).map((f: any) => f.game_id);
+                setFavouriteIds(favIds);
+
             } catch {
                 router.push("/");
             } finally {
@@ -167,9 +176,6 @@ export default function UserDashboard() {
             }
         };
         init();
-
-        const favs = JSON.parse(localStorage.getItem("mg_favourites") || "[]");
-        setFavouriteIds(favs);
     }, [router]);
 
     const handleLogout = async () => {
@@ -191,7 +197,8 @@ export default function UserDashboard() {
     }, [featuredGames]);
 
     const handlePlayGame = async (game: Game) => {
-        if (!game.game_url) return;
+        if (!game.game_url || loadingGameId) return;
+        setLoadingGameId(game.id);
         try {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) {
@@ -221,6 +228,7 @@ export default function UserDashboard() {
         } catch (err: any) {
             console.error("Error launching practice session:", err);
             alert(err.message || "Failed to start practice session");
+            setLoadingGameId(null);
         }
     };
 
@@ -402,11 +410,17 @@ export default function UserDashboard() {
                                                         e.stopPropagation();
                                                         handlePlayGame(game);
                                                     }}
-                                                    disabled={!game.game_url}
-                                                    className="px-5 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-purple-500/20 transition-all transform hover:-translate-y-0.5 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                                                    disabled={!game.game_url || loadingGameId !== null}
+                                                    className="px-5 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-purple-500/20 transition-all transform hover:-translate-y-0.5 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer disabled:scale-100 disabled:pointer-events-none"
                                                 >
-                                                    <Play className="w-3 h-3 fill-current" />
-                                                    {game.game_url ? 'Play Game' : 'Coming Soon'}
+                                                    {loadingGameId === game.id ? (
+                                                        <><Loader2 className="w-3 h-3 animate-spin" /> Starting...</>
+                                                    ) : (
+                                                        <>
+                                                            <Play className="w-3 h-3 fill-current" />
+                                                            {game.game_url ? 'Play Game' : 'Coming Soon'}
+                                                        </>
+                                                    )}
                                                 </button>
                                             </div>
 
@@ -543,12 +557,16 @@ export default function UserDashboard() {
                                                     </div>
                                                     <button
                                                         onClick={(e) => { e.stopPropagation(); handlePlayGame(game); }}
-                                                        disabled={!game.game_url}
-                                                        className="w-full py-1.5 rounded-lg text-[10px] font-black text-white transition-all hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1 cursor-pointer"
+                                                        disabled={!game.game_url || loadingGameId !== null}
+                                                        className="w-full py-1.5 rounded-lg text-[10px] font-black text-white transition-all hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1 cursor-pointer disabled:pointer-events-none"
                                                         style={{ background: `linear-gradient(135deg, ${grad.accent}, ${grad.accent}99)` }}
                                                     >
                                                         {game.game_url ? (
-                                                            <><ExternalLink className="w-2.5 h-2.5" /> Play Now</>
+                                                            loadingGameId === game.id ? (
+                                                                <><Loader2 className="w-2.5 h-2.5 animate-spin" /> Starting...</>
+                                                            ) : (
+                                                                <><ExternalLink className="w-2.5 h-2.5" /> Play Now</>
+                                                            )
                                                         ) : (
                                                             "Coming Soon"
                                                         )}
